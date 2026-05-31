@@ -36,7 +36,7 @@ class VoiceXP(commands.Cog):
                     user_data = get_user(member.id, guild_id)
                     if user_data:
                         current_xp, current_level = user_data
-                        xp_needed = (current_level + 1) * 100
+                        xp_needed = 100 * (current_level + 1) + 50 * (current_level ** 2)
 
                         if current_xp >= xp_needed:
                             new_level = current_level + 1
