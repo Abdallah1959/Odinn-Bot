@@ -89,7 +89,7 @@ class Leveling(commands.Cog):
             return
             
         current_xp, current_level = user_data
-        xp_needed = (current_level + 1) * 100
+        xp_needed = 100 * (current_level + 1) + 50 * (current_level ** 2)
         
         embed = discord.Embed(
             title=f"⚔️ إحصائيات المحارب | {member.display_name}", 
