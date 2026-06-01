@@ -48,7 +48,8 @@ class Leveling(commands.Cog):
         user_data = get_user(user_id, guild_id)
         if user_data:
             current_xp, current_level = user_data
-            xp_needed = (current_level + 1) * 100
+            # دي المعادلة اللي غالباً نسيت تغيرها هنا
+            xp_needed = 100 * (current_level + 1) + 50 * (current_level ** 2)
 
             # التحقق من الارتقاء
             if current_xp >= xp_needed:
