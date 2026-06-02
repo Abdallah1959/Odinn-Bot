@@ -1,4 +1,3 @@
-from keep_alive import keep_alive
 import discord
 from discord.ext import commands
 import os
@@ -18,11 +17,10 @@ logger = logging.getLogger(__name__)
 class OdinnBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
-        intents.message_content = True
-        # تم إيقاف intents.members لتوفير الموارد وتقليل استهلاك الـ RAM على Render Free
+        intents.message_content = True  # تم إيقاف intents.members لتوفير الموارد وتقليل استهلاك الـ RAM على Render Free
         super().__init__(command_prefix="!", intents=intents)
         
-        # إنشاء الخدمات وحقنها في الـ Container
+        # إنشاء الخدمات وحقنها في الـ Container المحدث بالـ Type Hints الكاملة
         self.db_service = DatabaseService()
         self.tmdb_service = TMDBService()
         self.services = ServiceContainer(self.tmdb_service, self.db_service)
@@ -70,5 +68,5 @@ async def on_ready():
     print('⚔️ Odinn Bot V2 Enterprise Architecture is online!')
 
 if __name__ == '__main__':
-    keep_alive()
+    # [تم التعديل]: التشغيل المباشر والآمن دون استدعاء أي ميزات خارجية مجهولة
     bot.run(settings.DISCORD_TOKEN)
