@@ -1,3 +1,4 @@
+# services/tmdb_service.py
 import aiohttp
 import asyncio
 import logging
@@ -20,7 +21,7 @@ class TMDBService:
         logger.info("TMDB Service session initialized.")
 
     async def search_movies(self, query: str) -> List[dict]:
-        """البحث عن الأفلام باستخدام الكلمة المفتاحية وإرجاع النتائج لترتيبها بشكل آمن"""
+        """البحث عن الأفلام باستخدام الكلمة المفتاحية وإرجاع النتائج الخام لترتيبها بشكل آمن"""
         if not self.session:
             return []
             
@@ -47,6 +48,7 @@ class TMDBService:
             return []
 
     async def fetch_popular_movies(self) -> List[dict]:
+        """جلب الأفلام المشهورة كـ dicts خام ليتغذى عليها محرك الـ Daily Picks لاحقاً"""
         if not self.session:
             return []
             
@@ -72,6 +74,7 @@ class TMDBService:
             return []
 
     async def get_movie_details(self, movie_id: int) -> Optional[Movie]:
+        """جلب التفاصيل العميقة وحقنها داخل كائن الـ Movie Model بشكل صارم ومتوافق"""
         if not self.session:
             return None
             
@@ -89,7 +92,7 @@ class TMDBService:
                 details = await response.json()
                 overview = details.get("overview")
                 
-                # Fallback للقصة باللغة الإنجليزية في قاموس منفصل تماماً ومستقل
+                # Fallback للقصة باللغة الإنجليزية في قاموس منفصل تماماً ومستقل لحفظ الحالة
                 if not overview:
                     en_params = {
                         "api_key": self.api_key,
@@ -103,6 +106,7 @@ class TMDBService:
                     except (asyncio.TimeoutError, aiohttp.ClientError) as en_e:
                         logger.warning(f"⚠️ Failed to fetch English fallback for movie {movie_id}: {en_e}")
                 
+                # استخراج رابط التريلر من اليوتيوب إن وجد
                 trailer_url = None
                 for video in details.get("videos", {}).get("results", []):
                     if video.get("type") == "Trailer" and video.get("site") == "YouTube":
@@ -112,19 +116,21 @@ class TMDBService:
                 poster_path = details.get("poster_path")
                 genre_ids = [genre.get("id") for genre in details.get("genres", [])] if "genres" in details else []
                 
+                # [تأمين وحقن الكونتراكت]: البناء المطابق تماماً لهيكلية كلاس Movie المعتمد مع الـ Type Safety
                 return Movie(
-                    tmdb_id=details.get("id"),
-                    title=details.get("title", "غير محدد"),
+                    tmdb_id=details.get("id", 0),  # [تعديل 2]: حماية النوع لقيمة المعرف الأساسي
+                    title=details.get("title", "غير محدد"),  # [تعديل 1]: إصلاح الخطأ الإملائي
                     original_title=details.get("original_title", "Untitled"),
                     overview=overview or "لا توجد قصة متاحة.",
                     rating=details.get("vote_average", 0.0),
                     vote_count=details.get("vote_count", 0),
-                    popularity=details.get("popularity", 0.0),
-                    release_date=details.get("release_date", "غير محدد"),
-                    genre_ids=genre_ids,
+                    release_date=details.get("release_date"),
+                    runtime=details.get("runtime"),
                     poster_url=f"https://image.tmdb.org/t/p/original{poster_path}" if poster_path else None,
+                    backdrop_path=details.get("backdrop_path"),
                     imdb_id=details.get("external_ids", {}).get("imdb_id"),
-                    trailer_url=trailer_url
+                    trailer_url=trailer_url,
+                    genre_ids=genre_ids
                 )
         except asyncio.TimeoutError:
             logger.error(f"🚨 Timeout error while fetching movie {movie_id}")
@@ -134,7 +140,7 @@ class TMDBService:
             return None
 
     async def close(self):
-        """إغلاق السيشن بأمان وتصفير المتغير"""
+        """إغلاق السيشن بأمان وتصفير المتغير للتنظيف الكامل للموارد"""
         if self.session:
             await self.session.close()
             self.session = None
