@@ -8,29 +8,32 @@ from services.database_service import DatabaseService
 from services.tmdb_service import TMDBService
 from services.service_container import ServiceContainer
 
-# تفعيل الـ Logging
-logging.basicConfig(level=logging.INFO)
+# تفعيل الـ Logging بالتنسيق الاحترافي الجديد لمنع الفوضى في الـ Logs
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 class OdinnBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
-        intents.members = True
+        # تم إيقاف intents.members لتوفير الموارد وتقليل استهلاك الـ RAM على Render Free
         super().__init__(command_prefix="!", intents=intents)
         
-        # إنشاء الخدمات (Services) وحقنها في الـ Container
+        # إنشاء الخدمات وحقنها في الـ Container
         self.db_service = DatabaseService()
         self.tmdb_service = TMDBService()
         self.services = ServiceContainer(self.tmdb_service, self.db_service)
 
     async def setup_hook(self):
         """تهيئة البوت: فتح الاتصالات وتحميل الكوجز بأمان"""
-        # تشغيل الخدمات وفتح الـ Connections مرة واحدة بس
+        # تشغيل الخدمات وفتح الـ Connections مرة واحدة بس عند الإقلاع
         await self.db_service.initialize()
         await self.tmdb_service.initialize()
         
-        # تحميل كل ملفات الكوجز
+        # تحميل كل ملفات الكوجز أوتوماتيكياً
         for filename in os.listdir('./cogs'):
             if filename.endswith('.py') and not filename.startswith('__'):
                 try:
@@ -40,7 +43,7 @@ class OdinnBot(commands.Bot):
                     logger.error(f'❌ Failed to load Cog {filename}: {e}')
 
     async def close(self):
-        """الإغلاق الآمن للبوت (Graceful Shutdown)"""
+        """الإغلاق الآمن للبوت والتنظيف وراءه (Graceful Shutdown)"""
         logger.info("🛑 Shutting down Odinn Bot safely...")
         await self.db_service.close()
         await self.tmdb_service.close()
@@ -48,7 +51,7 @@ class OdinnBot(commands.Bot):
 
 bot = OdinnBot()
 
-# أمر مزامنة أوامر السلاش (للمطور فقط وداخل السيرفرات فقط)
+# أمر مزامنة أوامر السلاش (للمطور فقط وداخل السيرفرات فقط حماية من الـ Rate Limit)
 @bot.command()
 @commands.is_owner()
 @commands.guild_only()
@@ -68,5 +71,4 @@ async def on_ready():
 
 if __name__ == '__main__':
     keep_alive()
-    # تشغيل البوت باستخدام التوكن من الـ Settings
     bot.run(settings.DISCORD_TOKEN)
