@@ -1,1 +1,97 @@
+import aiohttp
+import asyncio
+import logging
+from typing import Optional, List
+from config.settings import settings
+from models.movie import Movie
 
+logger = logging.getLogger(__name__)
+
+class TMDBService:
+    def __init__(self):
+        self.base_url = "https://api.themoviedb.org/3"
+        self.api_key = settings.TMDB_API_KEY
+        self.session: Optional[aiohttp.ClientSession] = None
+
+    async def initialize(self):
+        """فتح السيشن مرة واحدة فقط عند بدء التشغيل"""
+        timeout = aiohttp.ClientTimeout(total=15)
+        self.session = aiohttp.ClientSession(timeout=timeout)
+        logger.info("TMDB Service session initialized.")
+
+    async def fetch_popular_movies(self) -> List[dict]:
+        if not self.session: return []
+        url = f"{self.base_url}/movie/popular?api_key={self.api_key}&language=ar-SA&page=1"
+        try:
+            async with self.session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get("results", [])
+                logger.warning(f"TMDB returned status: {response.status} for popular movies")
+                return []
+        except asyncio.TimeoutError:
+            logger.error("🚨 Timeout error while fetching popular movies.")
+            return []
+        except aiohttp.ClientError as e:
+            logger.error(f"🚨 Client error while fetching popular movies: {e}")
+            return []
+
+    async def get_movie_details(self, movie_id: int) -> Optional[Movie]:
+        if not self.session: return None
+        url = f"{self.base_url}/movie/{movie_id}?api_key={self.api_key}&language=ar-SA&append_to_response=external_ids,videos"
+        try:
+            async with self.session.get(url) as response:
+                if response.status != 200:
+                    return None
+                    
+                details = await response.json()
+                
+                overview = details.get("overview")
+                
+                # Fallback للقصة باللغة الإنجليزية مع Error Handling منفصل
+                if not overview:
+                    en_url = f"{self.base_url}/movie/{movie_id}?api_key={self.api_key}&language=en-US"
+                    try:
+                        async with self.session.get(en_url) as en_response:
+                            if en_response.status == 200:
+                                en_details = await en_response.json()
+                                overview = en_details.get("overview")
+                    except (asyncio.TimeoutError, aiohttp.ClientError) as en_e:
+                        logger.warning(f"⚠️ Failed to fetch English fallback for movie {movie_id}: {en_e}")
+                
+                trailer_url = None
+                for video in details.get("videos", {}).get("results", []):
+                    if video.get("type") == "Trailer" and video.get("site") == "YouTube":
+                        trailer_url = f"https://www.youtube.com/watch?v={video.get('key')}"
+                        break
+
+                poster_path = details.get("poster_path")
+                genre_ids = [genre.get("id") for genre in details.get("genres", [])] if "genres" in details else []
+                
+                return Movie(
+                    tmdb_id=details.get("id"),
+                    title=details.get("title", "غير محدد"),
+                    original_title=details.get("original_title", "Untitled"),
+                    overview=overview or "لا توجد قصة متاحة.",
+                    rating=details.get("vote_average", 0.0),
+                    vote_count=details.get("vote_count", 0),
+                    popularity=details.get("popularity", 0.0),
+                    release_date=details.get("release_date", "غير محدد"),
+                    genre_ids=genre_ids,
+                    poster_url=f"https://image.tmdb.org/t/p/original{poster_path}" if poster_path else None,
+                    imdb_id=details.get("external_ids", {}).get("imdb_id"),
+                    trailer_url=trailer_url
+                )
+        except asyncio.TimeoutError:
+            logger.error(f"🚨 Timeout error while fetching movie {movie_id}")
+            return None
+        except aiohttp.ClientError as e:
+            logger.error(f"🚨 Network error while fetching movie {movie_id}: {e}")
+            return None
+
+    async def close(self):
+        """إغلاق السيشن بأمان وتصفير المتغير"""
+        if self.session:
+            await self.session.close()
+            self.session = None  # حماية إضافية
+            logger.info("TMDB session closed safely.")
