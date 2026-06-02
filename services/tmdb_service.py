@@ -20,16 +20,21 @@ class TMDBService:
         logger.info("TMDB Service session initialized.")
 
     async def search_movies(self, query: str) -> List[dict]:
-        """البحث عن الأفلام باستخدام الكلمة المفتاحية وإرجاع النتائج لترتيبها"""
+        """البحث عن الأفلام باستخدام الكلمة المفتاحية وإرجاع النتائج لترتيبها بشكل آمن"""
         if not self.session:
             return []
             
-        url = f"{self.base_url}/search/movie?api_key={self.api_key}&query={query}&language=ar-SA&page=1"
+        url = f"{self.base_url}/search/movie"
+        params = {
+            "api_key": self.api_key,
+            "query": query,
+            "language": "ar-SA",
+            "page": 1
+        }
         try:
-            async with self.session.get(url) as response:
+            async with self.session.get(url, params=params) as response:
                 if response.status == 200:
                     data = await response.json()
-                    # بنرجع النتائج الخام عشان الـ Ranking Engine يرتبها
                     return data.get("results", [])
                 
                 logger.warning(f"TMDB returned status: {response.status} for search query: {query}")
@@ -45,9 +50,14 @@ class TMDBService:
         if not self.session:
             return []
             
-        url = f"{self.base_url}/movie/popular?api_key={self.api_key}&language=ar-SA&page=1"
+        url = f"{self.base_url}/movie/popular"
+        params = {
+            "api_key": self.api_key,
+            "language": "ar-SA",
+            "page": 1
+        }
         try:
-            async with self.session.get(url) as response:
+            async with self.session.get(url, params=params) as response:
                 if response.status == 200:
                     data = await response.json()
                     return data.get("results", [])
@@ -65,20 +75,28 @@ class TMDBService:
         if not self.session:
             return None
             
-        url = f"{self.base_url}/movie/{movie_id}?api_key={self.api_key}&language=ar-SA&append_to_response=external_ids,videos"
+        url = f"{self.base_url}/movie/{movie_id}"
+        params = {
+            "api_key": self.api_key,
+            "language": "ar-SA",
+            "append_to_response": "external_ids,videos"
+        }
         try:
-            async with self.session.get(url) as response:
+            async with self.session.get(url, params=params) as response:
                 if response.status != 200:
                     return None
                 
                 details = await response.json()
                 overview = details.get("overview")
                 
-                # Fallback للقصة باللغة الإنجليزية مع Error Handling منفصل
+                # Fallback للقصة باللغة الإنجليزية في قاموس منفصل تماماً ومستقل
                 if not overview:
-                    en_url = f"{self.base_url}/movie/{movie_id}?api_key={self.api_key}&language=en-US"
+                    en_params = {
+                        "api_key": self.api_key,
+                        "language": "en-US"
+                    }
                     try:
-                        async with self.session.get(en_url) as en_response:
+                        async with self.session.get(url, params=en_params) as en_response:
                             if en_response.status == 200:
                                 en_details = await en_response.json()
                                 overview = en_details.get("overview")
@@ -119,5 +137,5 @@ class TMDBService:
         """إغلاق السيشن بأمان وتصفير المتغير"""
         if self.session:
             await self.session.close()
-            self.session = None  # حماية إضافية
+            self.session = None
             logger.info("TMDB session closed safely.")
