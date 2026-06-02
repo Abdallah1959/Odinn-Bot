@@ -19,14 +19,39 @@ class TMDBService:
         self.session = aiohttp.ClientSession(timeout=timeout)
         logger.info("TMDB Service session initialized.")
 
+    async def search_movies(self, query: str) -> List[dict]:
+        """البحث عن الأفلام باستخدام الكلمة المفتاحية وإرجاع النتائج لترتيبها"""
+        if not self.session:
+            return []
+            
+        url = f"{self.base_url}/search/movie?api_key={self.api_key}&query={query}&language=ar-SA&page=1"
+        try:
+            async with self.session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    # بنرجع النتائج الخام عشان الـ Ranking Engine يرتبها
+                    return data.get("results", [])
+                
+                logger.warning(f"TMDB returned status: {response.status} for search query: {query}")
+                return []
+        except asyncio.TimeoutError:
+            logger.error(f"🚨 Timeout error while searching for '{query}'")
+            return []
+        except aiohttp.ClientError as e:
+            logger.error(f"🚨 Network error while searching for '{query}': {e}")
+            return []
+
     async def fetch_popular_movies(self) -> List[dict]:
-        if not self.session: return []
+        if not self.session:
+            return []
+            
         url = f"{self.base_url}/movie/popular?api_key={self.api_key}&language=ar-SA&page=1"
         try:
             async with self.session.get(url) as response:
                 if response.status == 200:
                     data = await response.json()
                     return data.get("results", [])
+                
                 logger.warning(f"TMDB returned status: {response.status} for popular movies")
                 return []
         except asyncio.TimeoutError:
@@ -37,15 +62,16 @@ class TMDBService:
             return []
 
     async def get_movie_details(self, movie_id: int) -> Optional[Movie]:
-        if not self.session: return None
+        if not self.session:
+            return None
+            
         url = f"{self.base_url}/movie/{movie_id}?api_key={self.api_key}&language=ar-SA&append_to_response=external_ids,videos"
         try:
             async with self.session.get(url) as response:
                 if response.status != 200:
                     return None
-                    
-                details = await response.json()
                 
+                details = await response.json()
                 overview = details.get("overview")
                 
                 # Fallback للقصة باللغة الإنجليزية مع Error Handling منفصل
@@ -64,7 +90,7 @@ class TMDBService:
                     if video.get("type") == "Trailer" and video.get("site") == "YouTube":
                         trailer_url = f"https://www.youtube.com/watch?v={video.get('key')}"
                         break
-
+                
                 poster_path = details.get("poster_path")
                 genre_ids = [genre.get("id") for genre in details.get("genres", [])] if "genres" in details else []
                 
