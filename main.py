@@ -32,6 +32,7 @@ async def on_ready():
     print(f'✅ Logged in successfully as {bot.user.name}')
     print('⚔️ Odinn Bot is online and ready!')
     
+    # تحميل كل الـ Cogs
     for filename in os.listdir('./cogs'):
         if filename.endswith('.py'):
             try:
@@ -39,6 +40,13 @@ async def on_ready():
                 print(f'⚙️ Loaded Cog: {filename}')
             except Exception as e:
                 print(f'❌ Failed to load Cog {filename}: {e}')
+                
+    # مزامنة أوامر السلاش (Slash Commands) مع ديسكورد
+    try:
+        synced = await bot.tree.sync()
+        print(f"🔄 Synced {len(synced)} slash command(s) successfully.")
+    except Exception as e:
+        print(f"❌ Failed to sync slash commands: {e}")
 
 if __name__ == '__main__':
     keep_alive()
