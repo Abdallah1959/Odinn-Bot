@@ -2,52 +2,71 @@ from keep_alive import keep_alive
 import discord
 from discord.ext import commands
 import os
+import logging
+from config.settings import settings
+from services.database_service import DatabaseService
+from services.tmdb_service import TMDBService
+from services.service_container import ServiceContainer
 
-def load_dotenv():
-    dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
-    if not os.path.exists(dotenv_path):
-        return
-    with open(dotenv_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#') or '=' not in line:
-                continue
-            key, value = line.split('=', 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            if key and key not in os.environ:
-                os.environ[key] = value
+# تفعيل الـ Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
+class OdinnBot(commands.Bot):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.message_content = True
+        intents.members = True
+        super().__init__(command_prefix="!", intents=intents)
+        
+        # إنشاء الخدمات (Services) وحقنها في الـ Container
+        self.db_service = DatabaseService()
+        self.tmdb_service = TMDBService()
+        self.services = ServiceContainer(self.tmdb_service, self.db_service)
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+    async def setup_hook(self):
+        """تهيئة البوت: فتح الاتصالات وتحميل الكوجز بأمان"""
+        # تشغيل الخدمات وفتح الـ Connections مرة واحدة بس
+        await self.db_service.initialize()
+        await self.tmdb_service.initialize()
+        
+        # تحميل كل ملفات الكوجز
+        for filename in os.listdir('./cogs'):
+            if filename.endswith('.py') and not filename.startswith('__'):
+                try:
+                    await self.load_extension(f'cogs.{filename[:-3]}')
+                    logger.info(f'⚙️ Loaded Cog: {filename}')
+                except Exception as e:
+                    logger.error(f'❌ Failed to load Cog {filename}: {e}')
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+    async def close(self):
+        """الإغلاق الآمن للبوت (Graceful Shutdown)"""
+        logger.info("🛑 Shutting down Odinn Bot safely...")
+        await self.db_service.close()
+        await self.tmdb_service.close()
+        await super().close()
+
+bot = OdinnBot()
+
+# أمر مزامنة أوامر السلاش (للمطور فقط وداخل السيرفرات فقط)
+@bot.command()
+@commands.is_owner()
+@commands.guild_only()
+async def sync(ctx):
+    try:
+        synced = await bot.tree.sync()
+        await ctx.send(f"🔄 Synced {len(synced)} slash command(s) successfully.")
+        logger.info(f"🔄 Synced {len(synced)} commands via Developer Command.")
+    except Exception as e:
+        await ctx.send(f"❌ Error syncing commands: {e}")
+        logger.error(f"Error syncing commands: {e}")
 
 @bot.event
 async def on_ready():
-    print(f'✅ Logged in successfully as {bot.user.name}')
-    print('⚔️ Odinn Bot is online and ready!')
-    
-    # تحميل كل الـ Cogs
-    for filename in os.listdir('./cogs'):
-        if filename.endswith('.py'):
-            try:
-                await bot.load_extension(f'cogs.{filename[:-3]}')
-                print(f'⚙️ Loaded Cog: {filename}')
-            except Exception as e:
-                print(f'❌ Failed to load Cog {filename}: {e}')
-                
-    # مزامنة أوامر السلاش (Slash Commands) مع ديسكورد
-    try:
-        synced = await bot.tree.sync()
-        print(f"🔄 Synced {len(synced)} slash command(s) successfully.")
-    except Exception as e:
-        print(f"❌ Failed to sync slash commands: {e}")
+    logger.info(f'✅ Logged in successfully as {bot.user.name}')
+    print('⚔️ Odinn Bot V2 Enterprise Architecture is online!')
 
 if __name__ == '__main__':
     keep_alive()
-    bot.run(TOKEN)
+    # تشغيل البوت باستخدام التوكن من الـ Settings
+    bot.run(settings.DISCORD_TOKEN)
