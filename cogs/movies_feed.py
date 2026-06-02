@@ -2,63 +2,62 @@ import discord
 from discord.ext import commands, tasks
 import aiohttp
 import os
-import sqlite3
+import aiosqlite
 import logging
-from dotenv import load_dotenv
+from typing import Optional
+from discord.abc import Messageable
 
-# تفعيل الـ Logging
+# تفعيل الـ Logging الاحترافي
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# تحميل ملف .env
-load_dotenv()
 
 class MoviesAndShowsFeed(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # سحب المتغيرات من ملف البيئة
         self.tmdb_api_key = os.getenv("TMDB_API_KEY") 
-        self.channel_id = int(os.getenv("MOVIES_CHANNEL_ID", 1510778860982108420)) # استبدل الرقم لو مش هتسحبه من .env
+        self.channel_id = int(os.getenv("MOVIES_CHANNEL_ID", 1510778860982108420))
         
-        self.session = None # تهيئة الـ Session
-        
-        # إعداد قاعدة بيانات SQLite
-        # تأكد من وجود مجلد باسم database في مسار المشروع
+        if not self.tmdb_api_key:
+            raise ValueError("🚨 TMDB_API_KEY is missing from environment variables!")
+            
+        # إضافة Type Hints للخصائص
+        self.session: Optional[aiohttp.ClientSession] = None 
+        self.db_conn: Optional[aiosqlite.Connection] = None
         self.db_path = 'database/movies_history.db'
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+
+    async def cog_load(self):
+        timeout = aiohttp.ClientTimeout(total=15)
+        self.session = aiohttp.ClientSession(timeout=timeout)
         
-        self.db_conn = sqlite3.connect(self.db_path)
-        self.cursor = self.db_conn.cursor()
-        self.cursor.execute('''
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        self.db_conn = await aiosqlite.connect(self.db_path)
+        await self.db_conn.execute('''
             CREATE TABLE IF NOT EXISTS posted_media (
                 media_key TEXT PRIMARY KEY
             )
         ''')
-        self.db_conn.commit()
+        await self.db_conn.commit()
 
-    async def cog_load(self):
-        """تشتغل تلقائياً عند تحميل الـ Cog"""
-        self.session = aiohttp.ClientSession()
         self.check_new_media.start()
-        logger.info("MoviesAndShowsFeed Cog loaded and session started.")
+        logger.info("MoviesAndShowsFeed Cog loaded successfully.")
 
     async def cog_unload(self):
-        """تشتغل تلقائياً عند إيقاف الـ Cog"""
         self.check_new_media.cancel()
         if self.session:
             await self.session.close()
-        self.db_conn.close()
-        logger.info("MoviesAndShowsFeed Cog unloaded, session and DB closed.")
+        if self.db_conn:
+            await self.db_conn.close()
+        logger.info("MoviesAndShowsFeed Cog unloaded.")
 
-    def is_posted(self, media_key):
-        self.cursor.execute('SELECT 1 FROM posted_media WHERE media_key = ?', (media_key,))
-        return self.cursor.fetchone() is not None
+    async def is_posted(self, media_key: str) -> bool:
+        async with self.db_conn.execute('SELECT 1 FROM posted_media WHERE media_key = ?', (media_key,)) as cursor:
+            row = await cursor.fetchone()
+            return row is not None
 
-    def mark_as_posted(self, media_key):
-        self.cursor.execute('INSERT INTO posted_media (media_key) VALUES (?)', (media_key,))
-        self.db_conn.commit()
+    async def mark_as_posted(self, media_key: str):
+        await self.db_conn.execute('INSERT INTO posted_media (media_key) VALUES (?)', (media_key,))
 
-    async def get_trailer(self, media_id, media_type):
+    async def get_trailer(self, media_id: int, media_type: str) -> Optional[str]:
         if not self.session:
             return None
             
@@ -70,10 +69,8 @@ class MoviesAndShowsFeed(commands.Cog):
                     for video in data.get("results", []):
                         if video.get("type") == "Trailer" and video.get("site") == "YouTube":
                             return f"https://www.youtube.com/watch?v={video.get('key')}"
-                else:
-                    logger.warning(f"Failed to fetch trailer for {media_id}. Status: {response.status}")
-        except Exception as e:
-            logger.error(f"Error fetching trailer for {media_id}: {e}")
+        except Exception:
+            logger.exception(f"Error fetching trailer for {media_type} ID: {media_id}")
         return None
 
     @tasks.loop(hours=24)
@@ -83,36 +80,31 @@ class MoviesAndShowsFeed(commands.Cog):
             logger.error(f"Movies channel with ID {self.channel_id} not found.")
             return
 
-        if not self.tmdb_api_key:
-            logger.error("TMDB API Key is missing! Check your .env file.")
-            return
-
-        # استخدام endpoints للإصدارات الجديدة فعلياً
         movie_url = f"https://api.themoviedb.org/3/movie/now_playing?api_key={self.tmdb_api_key}&language=ar-SA&page=1"
         tv_url = f"https://api.themoviedb.org/3/tv/on_the_air?api_key={self.tmdb_api_key}&language=ar-SA&page=1"
         
         await self.fetch_and_post(movie_url, "movie", "🎬 فيلم جديد بالسينما", discord.Color.blue(), channel)
-        await self.fetch_and_post(tv_url, "tv", "📺 حلقة/مسلسل جديد", discord.Color.purple(), channel)
+        await self.fetch_and_post(tv_url, "tv", "📺 مسلسل جديد", discord.Color.purple(), channel)
 
-    async def fetch_and_post(self, url, media_type, type_text, embed_color, channel):
-        if not self.session:
+    async def fetch_and_post(self, url: str, media_type: str, type_text: str, embed_color: discord.Color, channel: Messageable):
+        if not self.session or not self.db_conn:
             return
 
         try:
             async with self.session.get(url) as response:
                 if response.status == 200:
                     data = await response.json()
-                    # سحب أول 2 فقط لتقليل الـ Requests وتجنب الـ Rate Limit
                     items = data.get("results", [])[:2] 
 
                     for item in items:
                         media_id = item.get("id")
-                        media_key = f"{media_type}_{media_id}" # حل مشكلة تكرار الـ ID
+                        media_key = f"{media_type}_{media_id}" 
                         
-                        if self.is_posted(media_key):
+                        if await self.is_posted(media_key):
                             continue
 
-                        title = item.get("title") if media_type == "movie" else item.get("name")
+                        # الذوق البرمجي الأفضل
+                        title = item.get("title") or item.get("name")
                         overview = item.get("overview") or "لا توجد قصة متاحة حالياً."
                         poster_path = item.get("poster_path")
                         poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
@@ -132,16 +124,27 @@ class MoviesAndShowsFeed(commands.Cog):
                             button = discord.ui.Button(label="شاهد التريلر 🍿", url=trailer_url, style=discord.ButtonStyle.link)
                             view.add_item(button)
 
-                        await channel.send(embed=embed, view=view)
-                        self.mark_as_posted(media_key)
+                        # معالجة استثناءات ديسكورد بدقة
+                        try:
+                            await channel.send(embed=embed, view=view)
+                            await self.mark_as_posted(media_key)
+                        except discord.Forbidden:
+                            logger.error(f"Missing permissions to send messages in {self.channel_id}")
+                            continue 
+                        except discord.HTTPException as http_err:
+                            logger.error(f"Discord HTTP error: {http_err}")
+                            continue
+                    
+                    await self.db_conn.commit()
                 else:
                     logger.error(f"TMDB API returned status: {response.status} for {media_type}")
-        except Exception as e:
-            logger.error(f"Exception during fetch_and_post for {media_type}: {e}")
+        except Exception:
+            if self.db_conn:
+                await self.db_conn.rollback() 
+            logger.exception(f"🚨 Exception during fetch_and_post for {media_type}")
 
     @check_new_media.before_loop
     async def before_check(self):
-        """التأكد من جاهزية البوت قبل تشغيل اللوب"""
         await self.bot.wait_until_ready()
 
 async def setup(bot):
