@@ -1,4 +1,4 @@
-from keep_alive import keep_alive
+# main.py
 import discord
 from discord.ext import commands
 import os
@@ -27,7 +27,7 @@ class OdinnBot(commands.Bot):
         self.services = ServiceContainer(self.tmdb_service, self.db_service)
 
     async def setup_hook(self):
-        """تهيئة البوت: فتح الاتصالات وتحميل الكوجز بأمان"""
+        """تهيئة البوت: فتح الاتصالات وتحميل الكوجز بأمان مع مزامنة الـ Slash Commands تلقائياً"""
         # تشغيل الخدمات وفتح الـ Connections مرة واحدة بس عند الإقلاع
         await self.db_service.initialize()
         await self.tmdb_service.initialize()
@@ -41,6 +41,13 @@ class OdinnBot(commands.Bot):
                 except Exception as e:
                     logger.error(f'❌ Failed to load Cog {filename}: {e}')
 
+        # [تعديل ميزة المزامنة]: مزامنة أوامر الـ Slash مع سيرفرات Discord أوتوماتيكياً عند الإقلاع
+        try:
+            synced = await self.tree.sync()
+            logger.info(f"✅ Synced {len(synced)} slash command(s).")
+        except Exception as e:
+            logger.error(f"❌ Failed to sync slash commands: {e}")
+
     async def close(self):
         """الإغلاق الآمن للبوت والتنظيف وراءه (Graceful Shutdown)"""
         logger.info("🛑 Shutting down Odinn Bot safely...")
@@ -50,7 +57,7 @@ class OdinnBot(commands.Bot):
 
 bot = OdinnBot()
 
-# أمر مزامنة أوامر السلاش (للمطور فقط وداخل السيرفرات فقط حماية من الـ Rate Limit)
+# أمر مزامنة أوامر السلاش اليدوي (كأداة احتياطية للمطور حماية من الـ Rate Limit)
 @bot.command()
 @commands.is_owner()
 @commands.guild_only()
@@ -69,6 +76,5 @@ async def on_ready():
     print('⚔️ Odinn Bot V2 Enterprise Architecture is online!')
 
 if __name__ == '__main__':
-    keep_alive()
-    # [تم التعديل]: التشغيل المباشر والآمن دون استدعاء أي ميزات خارجية مجهولة
+    # التشغيل المباشر النظيف والآمن المتوافق تماماً مع بيئات الإنتاج
     bot.run(settings.DISCORD_TOKEN)
