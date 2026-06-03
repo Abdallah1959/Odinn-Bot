@@ -1,4 +1,3 @@
-# cogs/tv_search.py
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -8,7 +7,6 @@ from utils.genres import format_genres
 
 logger = logging.getLogger(__name__)
 
-# دالة مساعدة مركزية لبناء الكارت السينمائي للمسلسلات لضمان التناسق البصري التام
 async def build_tv_card(tv):
     overview = getattr(tv, 'overview', None) or "لا توجد قصة متاحة حالياً."
     if len(overview) > 350:
@@ -68,14 +66,12 @@ async def build_tv_card(tv):
     return embed
 
 
-# [التحسين الاحترافي]: Helper موحد لبناء الـ View بالكامل وتجنب تكرار الكود
 def build_tv_view(tv, results, bot):
-    view = discord.ui.View(timeout=None)  # جعل الـ timeout=None للمحافظة على الموارد كالأفلام
+    view = discord.ui.View(timeout=300)
     
     if getattr(tv, 'tmdb_id', None):
-        # سيتم تطوير الرابط لاحقاً لدعم الموسم والحلقة ديناميكياً: /tv/{id}/{season}/{episode}
         watch_url = f"https://vidsrc.to/embed/tv/{tv.tmdb_id}"
-        view.add_item(discord.ui.Button(label="Watch Now 📺", url=watch_url, style=discord.ButtonStyle.link, row=0))
+        view.add_item(discord.ui.Button(label="Watch Now 🎬", url=watch_url, style=discord.ButtonStyle.link, row=0))
         
     if getattr(tv, 'imdb_id', None):
         imdb_url = f"https://www.imdb.com/title/{tv.imdb_id}/"
@@ -90,7 +86,6 @@ def build_tv_view(tv, results, bot):
     return view
 
 
-# كلاس القائمة المنسدلة (Select Menu) للمسلسلات
 class TVSelect(discord.ui.Select):
     def __init__(self, results, bot):
         self.bot = bot
@@ -98,9 +93,9 @@ class TVSelect(discord.ui.Select):
         
         options = []
         for t in results[:10]:
-            title = t.get("original_name") or t.get("name") or "Unknown"
+            name = t.get("name") or t.get("original_name") or "Unknown"
             year = t.get("first_air_date", "N/A")[:4] if t.get("first_air_date") else "N/A"
-            label = f"{title[:90]} ({year})"
+            label = f"{name[:90]} ({year})"
             
             raw_overview = t.get("overview") or "لا توجد قصة متاحة حالياً."
             desc = raw_overview[:80] + "..." if len(raw_overview) > 80 else raw_overview
@@ -114,33 +109,32 @@ class TVSelect(discord.ui.Select):
         super().__init__(placeholder="👀 هل تقصد مسلسل آخر؟ اختر من هنا...", options=options, row=1)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
         tv_id = int(self.values[0])
         
         tv = await self.bot.services.tmdb.get_tv_details(tv_id)
         if not tv:
-            await interaction.followup.send("⚠️ حدث خطأ أثناء سحب تفاصيل المسلسل.", ephemeral=True)
+            await interaction.response.send_message("⚠️ حدث خطأ أثناء سحب تفاصيل المسلسل.", ephemeral=True)
             return
             
         embed = await build_tv_card(tv)
         view = build_tv_view(tv, self.results, self.bot)
         
-        # استخدام الـ edit لتحديث الرسالة الأصلية بشكل تفاعلي مستقر
-        await interaction.message.edit(embed=embed, view=view)
+        # [التحسين النهائي]: تحديث الرسالة لحظياً بدون وميض
+        await interaction.response.edit_message(embed=embed, view=view)
 
 
 class TVSearch(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # 1. الدالة التي تشتغل في الخلفية لجلب الاقتراحات التلقائية حيةً أثناء الكتابة
     async def tv_autocomplete(
         self, 
         interaction: discord.Interaction, 
         current: str
     ) -> list[app_commands.Choice[str]]:
-        # حماية من الـ Spam والتثقيل على الـ API
-        if len(current.strip()) < 2:
+        
+        current = current.strip()
+        if len(current) < 2:
             return []
             
         results = await self.bot.services.tmdb.search_tv(current)
@@ -160,20 +154,19 @@ class TVSearch(commands.Cog):
                 choices.append(
                     app_commands.Choice(
                         name=display_name[:100],
-                        value=name[:100]  # تمرير النص المناسب ليتم معالجته كـ query لاحقاً
+                        value=name[:100]
                     )
                 )
                 seen_names.add(display_name)
                 
-            if len(choices) >= 25:  # سقف خيارات ديسكورد الأقصى للـ Autocomplete
+            if len(choices) >= 25:
                 break
                 
         return choices
 
-    # 2. الأمر الأساسي الخاص بالبحث والعرض السينمائي
     @app_commands.command(name="tv", description="ابحث عن مسلسل 📺")
     @app_commands.describe(query="اسم المسلسل المُراد البحث عنه")
-    @app_commands.autocomplete(query=tv_autocomplete)  # كوبري ربط دالة الإكمال التلقائي بالأمر بنجاح
+    @app_commands.autocomplete(query=tv_autocomplete)
     async def search_tv_command(self, interaction: discord.Interaction, query: str):
         await interaction.response.defer(thinking=True)
         logger.info("TV search requested | user_id=%s | query=%s", interaction.user.id, query)
@@ -184,6 +177,7 @@ class TVSearch(commands.Cog):
             return
             
         sorted_results = sorted(results, key=calculate_search_score, reverse=True)
+        
         best_match = sorted_results[0]
         tv_id = best_match.get("id")
         
