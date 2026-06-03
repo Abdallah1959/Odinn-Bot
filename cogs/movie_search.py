@@ -72,7 +72,7 @@ class MovieSelect(discord.ui.Select):
         options = []
         # جلب أفضل 10 نتائج لضمان شمولية البحث (مثل سلاسل هاري بوتر)
         for m in results[:10]:
-            title = m.get("original_title") or m.get("title") or "Unknown"
+            title = movie.get("title") or movie.get("original_title") or "Unknown"
             year = m.get("release_date", "N/A")[:4] if m.get("release_date") else "N/A"
             label = f"{title[:90]} ({year})" 
             
