@@ -26,11 +26,13 @@ async def build_tv_card(tv):
     tv_show_name = original_name or arabic_name or "Unknown TV Show"
     
     embed = discord.Embed(
-        title=f"📺 {tv_show_name} ({release_year})",
+        # إزالة الإيموجي من العنوان ليكون أنظف بصرياً
+        title=f"{tv_show_name} ({release_year})",
         description=desc,
         color=discord.Color.from_rgb(229, 9, 20)
     )
-    embed.set_author(name="🔍 نتيجة البحث")
+    # نقل الإيموجي وتعديل النص ليكون احترافياً
+    embed.set_author(name="📺 TV Search Result")
     
     votes_str = f"{tv.vote_count:,}" if getattr(tv, 'vote_count', None) else "0"
     embed.add_field(
@@ -93,7 +95,8 @@ class TVSelect(discord.ui.Select):
         
         options = []
         for t in results[:10]:
-            name = t.get("name") or t.get("original_name") or "Unknown"
+            # الاعتماد على original_name أولاً
+            name = t.get("original_name") or t.get("name") or "Unknown"
             year = t.get("first_air_date", "N/A")[:4] if t.get("first_air_date") else "N/A"
             label = f"{name[:90]} ({year})"
             
@@ -119,7 +122,6 @@ class TVSelect(discord.ui.Select):
         embed = await build_tv_card(tv)
         view = build_tv_view(tv, self.results, self.bot)
         
-        # [التحسين النهائي]: تحديث الرسالة لحظياً بدون وميض
         await interaction.response.edit_message(embed=embed, view=view)
 
 
@@ -146,7 +148,8 @@ class TVSearch(commands.Cog):
         seen_names = set()
         
         for tv in sorted_results:
-            name = tv.get("name") or tv.get("original_name") or "Unknown"
+            # الاعتماد على original_name أولاً
+            name = tv.get("original_name") or tv.get("name") or "Unknown"
             year = tv.get("first_air_date", "")[:4] if tv.get("first_air_date") else "N/A"
             display_name = f"{name} ({year})"
             
