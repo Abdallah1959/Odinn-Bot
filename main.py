@@ -69,5 +69,6 @@ async def on_ready():
     print('⚔️ Odinn Bot V2 Enterprise Architecture is online!')
 
 if __name__ == '__main__':
+    keep_alive()
     # [تم التعديل]: التشغيل المباشر والآمن دون استدعاء أي ميزات خارجية مجهولة
     bot.run(settings.DISCORD_TOKEN)
