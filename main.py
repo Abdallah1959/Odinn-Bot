@@ -1,4 +1,5 @@
 # main.py
+from keep_alive import keep_alive
 import discord
 from discord.ext import commands
 import os
@@ -76,5 +77,6 @@ async def on_ready():
     print('⚔️ Odinn Bot V2 Enterprise Architecture is online!')
 
 if __name__ == '__main__':
+    keep_alive()
     # التشغيل المباشر النظيف والآمن المتوافق تماماً مع بيئات الإنتاج
     bot.run(settings.DISCORD_TOKEN)
