@@ -60,25 +60,83 @@ async def build_movie_card(movie):
     return embed
 
 
-def build_movie_view(movie, results, bot):
-    view = discord.ui.View(timeout=300)
-    
-    watch_id = getattr(movie, 'imdb_id', None) or str(getattr(movie, 'tmdb_id', ''))
-    if watch_id:
-        watch_url = f"https://vidsrc.to/embed/movie/{watch_id}"
-        view.add_item(discord.ui.Button(label="Watch Now 🎬", url=watch_url, style=discord.ButtonStyle.link, row=0))
+class MovieView(discord.ui.View):
+    def __init__(self, movie, results, bot, is_in_watchlist: bool = False):
+        super().__init__(timeout=300)
+        self.movie = movie
+        self.bot = bot
+        self.results = results
+        
+        watch_id = getattr(movie, 'imdb_id', None) or str(getattr(movie, 'tmdb_id', ''))
+        if watch_id:
+            watch_url = f"https://vidsrc.to/embed/movie/{watch_id}"
+            self.add_item(discord.ui.Button(label="Watch Now 🎬", url=watch_url, style=discord.ButtonStyle.link, row=0))
 
-    if getattr(movie, 'trailer_url', None):
-        view.add_item(discord.ui.Button(label="Watch Trailer 🍿", url=movie.trailer_url, style=discord.ButtonStyle.link, row=0))
+        if getattr(movie, 'trailer_url', None):
+            self.add_item(discord.ui.Button(label="Watch Trailer 🍿", url=movie.trailer_url, style=discord.ButtonStyle.link, row=0))
 
-    if getattr(movie, 'imdb_id', None):
-        imdb_url = f"https://www.imdb.com/title/{movie.imdb_id}/"
-        view.add_item(discord.ui.Button(label="IMDb ⭐", url=imdb_url, style=discord.ButtonStyle.link, row=0))
+        if getattr(movie, 'imdb_id', None):
+            imdb_url = f"https://www.imdb.com/title/{movie.imdb_id}/"
+            self.add_item(discord.ui.Button(label="IMDb ⭐", url=imdb_url, style=discord.ButtonStyle.link, row=0))
 
-    if len(results) > 1:
-        view.add_item(MovieSelect(results, bot))
+        if len(results) > 1:
+            self.add_item(MovieSelect(results, bot))
 
-    return view
+        # تحديث حالة الزر فور بناء الكارت إذا كان الفيلم في القائمة
+        if is_in_watchlist:
+            self.add_to_watchlist_btn.style = discord.ButtonStyle.success
+            self.add_to_watchlist_btn.label = "In Watchlist ✅"
+            self.add_to_watchlist_btn.disabled = True
+
+    @discord.ui.button(label="Add To Watchlist ⭐", style=discord.ButtonStyle.secondary, custom_id="add_to_watchlist_movie", row=0)
+    async def add_to_watchlist_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
+        
+        try:
+            user_id = interaction.user.id
+            tmdb_id = getattr(self.movie, 'tmdb_id', None)
+            
+            if not tmdb_id:
+                button.disabled = False
+                await interaction.followup.send("❌ لا يمكن إضافة هذا الفيلم حالياً (بيانات مفقودة).", ephemeral=True)
+                return
+                
+            media_type = "movie"
+            media_name = getattr(self.movie, 'title') or getattr(self.movie, 'original_title') or "Unknown"
+            poster_url = getattr(self.movie, 'poster_url', None)
+            release_date_str = getattr(self.movie, 'release_date', "") or ""
+            release_year = release_date_str[:4] if len(release_date_str) >= 4 else "N/A"
+
+            # Check إضافي تحسباً لأي تضارب (Race Condition)
+            is_in = await self.bot.services.db.is_in_watchlist(user_id, tmdb_id, media_type)
+            if is_in:
+                button.style = discord.ButtonStyle.success
+                button.label = "In Watchlist ✅"
+                button.disabled = True
+                await interaction.followup.send("⚠️ هذا الفيلم موجود بالفعل في قائمة المشاهدة الخاصة بك!", ephemeral=True)
+                return
+
+            added = await self.bot.services.db.add_to_watchlist(
+                user_id=user_id,
+                tmdb_id=tmdb_id,
+                media_type=media_type,
+                media_name=media_name,
+                poster_url=poster_url,
+                release_year=release_year
+            )
+            
+            if added:
+                button.style = discord.ButtonStyle.success
+                button.label = "In Watchlist ✅"
+                button.disabled = True
+                await interaction.followup.send(f"✅ تمت إضافة **{media_name}** إلى قائمة المشاهدة.", ephemeral=True)
+            else:
+                button.disabled = False
+                await interaction.followup.send("❌ حدث خطأ أثناء إضافة الفيلم، يرجى المحاولة لاحقاً.", ephemeral=True)
+                
+        finally:
+            await interaction.edit_original_response(view=self)
 
 
 class MovieSelect(discord.ui.Select):
@@ -111,7 +169,10 @@ class MovieSelect(discord.ui.Select):
             return
 
         embed = await build_movie_card(movie)
-        view = build_movie_view(movie, self.results, self.bot)
+        
+        tmdb_id = getattr(movie, 'tmdb_id', movie_id)
+        is_in_watchlist = await self.bot.services.db.is_in_watchlist(interaction.user.id, tmdb_id, "movie")
+        view = MovieView(movie, self.results, self.bot, is_in_watchlist)
         
         await interaction.response.edit_message(embed=embed, view=view)
 
@@ -184,7 +245,10 @@ class MovieSearch(commands.Cog):
             return
 
         embed = await build_movie_card(movie)
-        view = build_movie_view(movie, sorted_results, self.bot)
+        
+        tmdb_id = getattr(movie, 'tmdb_id', movie_id)
+        is_in_watchlist = await self.bot.services.db.is_in_watchlist(interaction.user.id, tmdb_id, "movie")
+        view = MovieView(movie, sorted_results, self.bot, is_in_watchlist)
 
         await interaction.followup.send(embed=embed, view=view)
 
