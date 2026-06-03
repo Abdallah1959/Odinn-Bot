@@ -75,7 +75,7 @@ def build_tv_view(tv, results, bot):
     if getattr(tv, 'tmdb_id', None):
         # سيتم تطوير الرابط لاحقاً لدعم الموسم والحلقة ديناميكياً: /tv/{id}/{season}/{episode}
         watch_url = f"https://vidsrc.to/embed/tv/{tv.tmdb_id}"
-        view.add_item(discord.ui.Button(label="Watch Now 🎬", url=watch_url, style=discord.ButtonStyle.link, row=0))
+        view.add_item(discord.ui.Button(label="Watch Now 📺", url=watch_url, style=discord.ButtonStyle.link, row=0))
         
     if getattr(tv, 'imdb_id', None):
         imdb_url = f"https://www.imdb.com/title/{tv.imdb_id}/"
@@ -133,7 +133,7 @@ class TVSearch(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # [إضافة ميزة الـ Autocomplete التلقائية مع حماية الـ Spam والـ التكرار]
+    # 1. الدالة التي تشتغل في الخلفية لجلب الاقتراحات التلقائية حيةً أثناء الكتابة
     async def tv_autocomplete(
         self, 
         interaction: discord.Interaction, 
@@ -160,19 +160,20 @@ class TVSearch(commands.Cog):
                 choices.append(
                     app_commands.Choice(
                         name=display_name[:100],
-                        value=name[:100]  # إرسال الاسم الصافي المناسب للبحث الفعلي في الكوماند لاحقاً
+                        value=name[:100]  # تمرير النص المناسب ليتم معالجته كـ query لاحقاً
                     )
                 )
                 seen_names.add(display_name)
                 
-            if len(choices) >= 25:  # سقف خيارات ديسكورد الأقصى
+            if len(choices) >= 25:  # سقف خيارات ديسكورد الأقصى للـ Autocomplete
                 break
                 
-        return choices  # إرجاع الخيارات بشكل نظيف داخل الدالة وموضعها الصحيح
+        return choices
 
+    # 2. الأمر الأساسي الخاص بالبحث والعرض السينمائي
     @app_commands.command(name="tv", description="ابحث عن مسلسل 📺")
     @app_commands.describe(query="اسم المسلسل المُراد البحث عنه")
-    @app_commands.autocomplete(query=tv_autocomplete)  # ربط الدالة بالأمر بنجاح
+    @app_commands.autocomplete(query=tv_autocomplete)  # كوبري ربط دالة الإكمال التلقائي بالأمر بنجاح
     async def search_tv_command(self, interaction: discord.Interaction, query: str):
         await interaction.response.defer(thinking=True)
         logger.info("TV search requested | user_id=%s | query=%s", interaction.user.id, query)
