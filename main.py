@@ -29,8 +29,7 @@ class OdinnBot(commands.Bot):
 
     async def setup_hook(self):
         """تهيئة البوت: فتح الاتصالات وتحميل الكوجز بأمان مع مزامنة الـ Slash Commands تلقائياً"""
-        # تشغيل الخدمات وفتح الـ Connections مرة واحدة بس عند الإقلاع
-        await self.db_service.initialize()
+        # تهيئة TMDB فقط (قاعدة بيانات Supabase تقوم بالاتصال فوراً في __init__)
         await self.tmdb_service.initialize()
         
         # تحميل كل ملفات الكوجز أوتوماتيكياً
@@ -42,7 +41,7 @@ class OdinnBot(commands.Bot):
                 except Exception as e:
                     logger.error(f'❌ Failed to load Cog {filename}: {e}')
 
-        # [تعديل ميزة المزامنة]: مزامنة أوامر الـ Slash مع سيرفرات Discord أوتوماتيكياً عند الإقلاع
+        # مزامنة أوامر الـ Slash مع سيرفرات Discord أوتوماتيكياً عند الإقلاع
         try:
             synced = await self.tree.sync()
             logger.info(f"✅ Synced {len(synced)} slash command(s).")
@@ -52,7 +51,6 @@ class OdinnBot(commands.Bot):
     async def close(self):
         """الإغلاق الآمن للبوت والتنظيف وراءه (Graceful Shutdown)"""
         logger.info("🛑 Shutting down Odinn Bot safely...")
-        await self.db_service.close()
         await self.tmdb_service.close()
         await super().close()
 
@@ -74,11 +72,45 @@ async def sync(ctx):
 @bot.event
 async def on_ready():
     logger.info(f'✅ Logged in successfully as {bot.user.name}')
-    print('⚔️ Odinn Bot V2 Enterprise Architecture is online!')
+    logger.info('⚔️ Odinn Bot V2 Enterprise Architecture is online!')
+    
+    # --- منطقة اختبار الـ Supabase (تُحذف بالكامل بعد التأكد من نجاحها) ---
+    logger.info("="*40)
+    logger.info("🚀 بدء اختبارات قاعدة البيانات...")
+    
+    db = bot.services.db  
+    
+    # 0. اختبار الاتصال
+    is_connected = await db.test_connection()
+    logger.info("Connection Test: %s", is_connected)
+    
+    if is_connected:
+        # 1. اختبار الإضافة (Add)
+        added = await db.add_to_watchlist(
+            user_id=1,
+            tmdb_id=123,
+            media_type="movie",
+            media_name="Interstellar",
+            poster_url="https://example.com/poster.jpg",
+            release_year="2014"
+        )
+        logger.info("Add Test: %s", added)
+        
+        # 2. اختبار التحقق (Check)
+        is_in = await db.is_in_watchlist(user_id=1, tmdb_id=123, media_type="movie")
+        logger.info("Check Test: %s", is_in)
+        
+        # 3. اختبار العد (Count)
+        count_all = await db.count_watchlist_items(user_id=1)
+        logger.info("Count Test: %s", count_all)
+        
+        # 4. اختبار الجلب (Get)
+        watchlist = await db.get_watchlist(user_id=1)
+        first_item = watchlist[0].get('media_name') if watchlist else 'None'
+        logger.info("Get Test: Retrieved %s items. First item: %s", len(watchlist), first_item)
 
-from keep_alive import keep_alive
-
-...
+    logger.info("="*40)
+    # -------------------------------------------------------------------------
 
 if __name__ == "__main__":
     keep_alive()
