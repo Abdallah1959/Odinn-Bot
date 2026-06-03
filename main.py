@@ -73,44 +73,6 @@ async def sync(ctx):
 async def on_ready():
     logger.info(f'✅ Logged in successfully as {bot.user.name}')
     logger.info('⚔️ Odinn Bot V2 Enterprise Architecture is online!')
-    
-    # --- منطقة اختبار الـ Supabase (تُحذف بالكامل بعد التأكد من نجاحها) ---
-    logger.info("="*40)
-    logger.info("🚀 بدء اختبارات قاعدة البيانات...")
-    
-    db = bot.services.db  
-    
-    # 0. اختبار الاتصال
-    is_connected = await db.test_connection()
-    logger.info("Connection Test: %s", is_connected)
-    
-    if is_connected:
-        # 1. اختبار الإضافة (Add)
-        added = await db.add_to_watchlist(
-            user_id=1,
-            tmdb_id=123,
-            media_type="movie",
-            media_name="Interstellar",
-            poster_url="https://example.com/poster.jpg",
-            release_year="2014"
-        )
-        logger.info("Add Test: %s", added)
-        
-        # 2. اختبار التحقق (Check)
-        is_in = await db.is_in_watchlist(user_id=1, tmdb_id=123, media_type="movie")
-        logger.info("Check Test: %s", is_in)
-        
-        # 3. اختبار العد (Count)
-        count_all = await db.count_watchlist_items(user_id=1)
-        logger.info("Count Test: %s", count_all)
-        
-        # 4. اختبار الجلب (Get)
-        watchlist = await db.get_watchlist(user_id=1)
-        first_item = watchlist[0].get('media_name') if watchlist else 'None'
-        logger.info("Get Test: Retrieved %s items. First item: %s", len(watchlist), first_item)
-
-    logger.info("="*40)
-    # -------------------------------------------------------------------------
 
 if __name__ == "__main__":
     keep_alive()
