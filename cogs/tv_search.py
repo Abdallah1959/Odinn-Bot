@@ -26,12 +26,10 @@ async def build_tv_card(tv):
     tv_show_name = original_name or arabic_name or "Unknown TV Show"
     
     embed = discord.Embed(
-        # إزالة الإيموجي من العنوان ليكون أنظف بصرياً
         title=f"{tv_show_name} ({release_year})",
         description=desc,
         color=discord.Color.from_rgb(229, 9, 20)
     )
-    # نقل الإيموجي وتعديل النص ليكون احترافياً
     embed.set_author(name="📺 TV Search Result")
     
     votes_str = f"{tv.vote_count:,}" if getattr(tv, 'vote_count', None) else "0"
@@ -68,24 +66,83 @@ async def build_tv_card(tv):
     return embed
 
 
-def build_tv_view(tv, results, bot):
-    view = discord.ui.View(timeout=300)
-    
-    if getattr(tv, 'tmdb_id', None):
-        watch_url = f"https://vidsrc.to/embed/tv/{tv.tmdb_id}"
-        view.add_item(discord.ui.Button(label="Watch Now 🎬", url=watch_url, style=discord.ButtonStyle.link, row=0))
+class TVView(discord.ui.View):
+    def __init__(self, tv, results, bot, is_in_watchlist: bool = False):
+        super().__init__(timeout=300)
+        self.tv = tv
+        self.bot = bot
+        self.results = results
         
-    if getattr(tv, 'imdb_id', None):
-        imdb_url = f"https://www.imdb.com/title/{tv.imdb_id}/"
-        view.add_item(discord.ui.Button(label="IMDb ⭐", url=imdb_url, style=discord.ButtonStyle.link, row=0))
+        if getattr(tv, 'tmdb_id', None):
+            watch_url = f"https://vidsrc.to/embed/tv/{tv.tmdb_id}"
+            self.add_item(discord.ui.Button(label="Watch Now 🎬", url=watch_url, style=discord.ButtonStyle.link, row=0))
+            
+        if getattr(tv, 'imdb_id', None):
+            imdb_url = f"https://www.imdb.com/title/{tv.imdb_id}/"
+            self.add_item(discord.ui.Button(label="IMDb ⭐", url=imdb_url, style=discord.ButtonStyle.link, row=0))
+            
+        if getattr(tv, 'trailer_url', None):
+            self.add_item(discord.ui.Button(label="Trailer 🍿", url=tv.trailer_url, style=discord.ButtonStyle.link, row=0))
+            
+        if len(results) > 1:
+            self.add_item(TVSelect(results, bot))
+
+        # تحديث حالة الزر فور بناء الكارت إذا كان المسلسل في القائمة
+        if is_in_watchlist:
+            self.add_to_watchlist_btn.style = discord.ButtonStyle.success
+            self.add_to_watchlist_btn.label = "In Watchlist ✅"
+            self.add_to_watchlist_btn.disabled = True
+
+    @discord.ui.button(label="Add To Watchlist ⭐", style=discord.ButtonStyle.secondary, custom_id="add_to_watchlist_tv", row=0)
+    async def add_to_watchlist_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
         
-    if getattr(tv, 'trailer_url', None):
-        view.add_item(discord.ui.Button(label="Trailer 🍿", url=tv.trailer_url, style=discord.ButtonStyle.link, row=0))
-        
-    if len(results) > 1:
-        view.add_item(TVSelect(results, bot))
-        
-    return view
+        try:
+            user_id = interaction.user.id
+            tmdb_id = getattr(self.tv, 'tmdb_id', None)
+            
+            if not tmdb_id:
+                button.disabled = False
+                await interaction.followup.send("❌ لا يمكن إضافة هذا المسلسل حالياً (بيانات مفقودة).", ephemeral=True)
+                return
+                
+            media_type = "tv"
+            # أولوية الاسم العربي ثم الأصلي للمسلسلات (name / original_name)
+            media_name = getattr(self.tv, 'name') or getattr(self.tv, 'original_name') or "Unknown"
+            poster_url = getattr(self.tv, 'poster_url', None)
+            first_air_date_str = getattr(self.tv, 'first_air_date', "") or ""
+            release_year = first_air_date_str[:4] if len(first_air_date_str) >= 4 else "N/A"
+
+            # Check إضافي تحسباً لأي تضارب (Race Condition)
+            is_in = await self.bot.services.db.is_in_watchlist(user_id, tmdb_id, media_type)
+            if is_in:
+                button.style = discord.ButtonStyle.success
+                button.label = "In Watchlist ✅"
+                button.disabled = True
+                await interaction.followup.send("⚠️ هذا المسلسل موجود بالفعل في قائمة المشاهدة الخاصة بك!", ephemeral=True)
+                return
+
+            added = await self.bot.services.db.add_to_watchlist(
+                user_id=user_id,
+                tmdb_id=tmdb_id,
+                media_type=media_type,
+                media_name=media_name,
+                poster_url=poster_url,
+                release_year=release_year
+            )
+            
+            if added:
+                button.style = discord.ButtonStyle.success
+                button.label = "In Watchlist ✅"
+                button.disabled = True
+                await interaction.followup.send(f"✅ تمت إضافة **{media_name}** إلى قائمة المشاهدة.", ephemeral=True)
+            else:
+                button.disabled = False
+                await interaction.followup.send("❌ حدث خطأ أثناء إضافة المسلسل، يرجى المحاولة لاحقاً.", ephemeral=True)
+                
+        finally:
+            await interaction.edit_original_response(view=self)
 
 
 class TVSelect(discord.ui.Select):
@@ -95,7 +152,6 @@ class TVSelect(discord.ui.Select):
         
         options = []
         for t in results[:10]:
-            # الاعتماد على original_name أولاً
             name = t.get("original_name") or t.get("name") or "Unknown"
             year = t.get("first_air_date", "N/A")[:4] if t.get("first_air_date") else "N/A"
             label = f"{name[:90]} ({year})"
@@ -120,7 +176,11 @@ class TVSelect(discord.ui.Select):
             return
             
         embed = await build_tv_card(tv)
-        view = build_tv_view(tv, self.results, self.bot)
+        
+        # فحص وجود المسلسل قبل بناء الكارت الجديد عند التغيير من القائمة
+        tmdb_id = getattr(tv, 'tmdb_id', tv_id)
+        is_in_watchlist = await self.bot.services.db.is_in_watchlist(interaction.user.id, tmdb_id, "tv")
+        view = TVView(tv, self.results, self.bot, is_in_watchlist)
         
         await interaction.response.edit_message(embed=embed, view=view)
 
@@ -148,7 +208,6 @@ class TVSearch(commands.Cog):
         seen_names = set()
         
         for tv in sorted_results:
-            # الاعتماد على original_name أولاً
             name = tv.get("original_name") or tv.get("name") or "Unknown"
             year = tv.get("first_air_date", "")[:4] if tv.get("first_air_date") else "N/A"
             display_name = f"{name} ({year})"
@@ -190,7 +249,12 @@ class TVSearch(commands.Cog):
             return
             
         embed = await build_tv_card(tv)
-        view = build_tv_view(tv, sorted_results, self.bot)
+        
+        # فحص وجود المسلسل قبل بناء الكارت لأول مرة
+        tmdb_id = getattr(tv, 'tmdb_id', tv_id)
+        is_in_watchlist = await self.bot.services.db.is_in_watchlist(interaction.user.id, tmdb_id, "tv")
+        view = TVView(tv, sorted_results, self.bot, is_in_watchlist)
+        
         await interaction.followup.send(embed=embed, view=view)
 
 
