@@ -26,11 +26,11 @@ async def build_movie_card(movie):
     movie_name = original_title or arabic_title or "Unknown Movie"
 
     embed = discord.Embed(
-        title=f"🎬 {movie_name} ({release_year})",
+        title=f"{movie_name} ({release_year})",
         description=desc,
         color=discord.Color.from_rgb(229, 9, 20)
     )
-    embed.set_author(name="🔍 نتيجة البحث")
+    embed.set_author(name="🎬 Movie Search Result")
 
     votes_str = f"{movie.vote_count:,}" if getattr(movie, 'vote_count', None) else "0"
     embed.add_field(
@@ -59,7 +59,7 @@ async def build_movie_card(movie):
     embed.set_footer(text="Odinn Cinema Network • Powered by TMDB Engine 🍿")
     return embed
 
-# [التحسين الجديد]: Helper لبناء الـ View بالكامل وتجنب تكرار الكود
+
 def build_movie_view(movie, results, bot):
     view = discord.ui.View(timeout=300)
     
@@ -80,13 +80,13 @@ def build_movie_view(movie, results, bot):
 
     return view
 
+
 class MovieSelect(discord.ui.Select):
     def __init__(self, results, bot):
         self.bot = bot
         self.results = results
         options = []
         for m in results[:10]:
-            # تعديل لتقديم الاسم الأصلي أولاً
             title = m.get("original_title") or m.get("title") or "Unknown"
             year = m.get("release_date", "N/A")[:4] if m.get("release_date") else "N/A"
             label = f"{title[:90]} ({year})" 
@@ -111,11 +111,10 @@ class MovieSelect(discord.ui.Select):
             return
 
         embed = await build_movie_card(movie)
-        
-        # استخدام الـ Helper لإنشاء الأزرار والمنيو
         view = build_movie_view(movie, self.results, self.bot)
         
         await interaction.response.edit_message(embed=embed, view=view)
+
 
 class MovieSearch(commands.Cog):
     def __init__(self, bot):
@@ -145,7 +144,6 @@ class MovieSearch(commands.Cog):
         seen_names = set()
 
         for movie in sorted_results:
-            # تعديل لتقديم الاسم الأصلي أولاً
             title = movie.get("original_title") or movie.get("title") or "Unknown"
             year = movie.get("release_date", "")[:4] if movie.get("release_date") else "N/A"
             display_name = f"{title} ({year})"
@@ -186,11 +184,10 @@ class MovieSearch(commands.Cog):
             return
 
         embed = await build_movie_card(movie)
-        
-        # استخدام الـ Helper لإنشاء الأزرار والمنيو
         view = build_movie_view(movie, sorted_results, self.bot)
 
         await interaction.followup.send(embed=embed, view=view)
+
 
 async def setup(bot):
     await bot.add_cog(MovieSearch(bot))
