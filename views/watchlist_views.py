@@ -1,4 +1,3 @@
-# views/watchlist_views.py
 import discord
 import logging
 
@@ -78,7 +77,8 @@ class LibraryMovieSelect(discord.ui.Select):
                 return await interaction.followup.send("❌ Error fetching movie details from TMDB.", ephemeral=True)
                 
             embed = await build_movie_card(movie)
-            view = MovieView(movie, [movie], self.bot, is_in_watchlist=True)
+            # تم التعديل: نمرر library_user_id ليعرف الكارت أنه مفتوح من المكتبة
+            view = MovieView(movie, [movie], self.bot, is_in_watchlist=True, library_user_id=self.user_id)
             await interaction.edit_original_response(embed=embed, view=view)
             
         except Exception:
@@ -118,7 +118,8 @@ class LibraryTVSelect(discord.ui.Select):
                 return await interaction.followup.send("❌ Error fetching TV show details from TMDB.", ephemeral=True)
                 
             embed = await build_tv_card(tv)
-            view = TVView(tv, [tv], self.bot, is_in_watchlist=True)
+            # تم التعديل: نمرر library_user_id
+            view = TVView(tv, [tv], self.bot, is_in_watchlist=True, library_user_id=self.user_id)
             await interaction.edit_original_response(embed=embed, view=view)
             
         except Exception:
@@ -149,7 +150,6 @@ class WatchlistHomeView(discord.ui.View):
         self.bot = bot
         self.user_id = user_id
 
-    # --- Helper Function لمنع تكرار الكود ---
     async def _build_media_library(self, interaction: discord.Interaction, media_type: str):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("⚠️ This is not your library.", ephemeral=True)
@@ -178,7 +178,6 @@ class WatchlistHomeView(discord.ui.View):
             total_items = len(items)
             showing_count = min(10, total_items)
             
-            # التعديل هنا: استخدام صيغة الجمع المباشرة للحصول على نص احترافي
             description_text = f"Select a {item_name} from the menu below to view details.\n\n*Showing {showing_count} of {total_items} {item_name_plural}*"
             if total_items > 10:
                 description_text += " *(Pagination coming soon) 🚀*"
