@@ -61,7 +61,8 @@ async def build_movie_card(movie):
 
 
 class MovieView(discord.ui.View):
-    def __init__(self, movie, results, bot, is_in_watchlist: bool = False):
+    # تم إضافة library_user_id كمتغير اختياري
+    def __init__(self, movie, results, bot, is_in_watchlist: bool = False, library_user_id: int = None):
         super().__init__(timeout=300)
         self.movie = movie
         self.bot = bot
@@ -82,11 +83,15 @@ class MovieView(discord.ui.View):
         if len(results) > 1:
             self.add_item(MovieSelect(results, bot))
 
-        # تحديث حالة الزر فور بناء الكارت إذا كان الفيلم في القائمة
         if is_in_watchlist:
             self.add_to_watchlist_btn.style = discord.ButtonStyle.success
             self.add_to_watchlist_btn.label = "In Watchlist ✅"
             self.add_to_watchlist_btn.disabled = True
+
+        # الذكاء هنا: الزر يظهر فقط إذا كان الكارت مفتوحاً من المكتبة
+        if library_user_id:
+            from views.watchlist_views import BackToLibraryButton
+            self.add_item(BackToLibraryButton(bot, library_user_id))
 
     @discord.ui.button(label="Add To Watchlist ⭐", style=discord.ButtonStyle.secondary, custom_id="add_to_watchlist_movie", row=0)
     async def add_to_watchlist_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -108,7 +113,6 @@ class MovieView(discord.ui.View):
             release_date_str = getattr(self.movie, 'release_date', "") or ""
             release_year = release_date_str[:4] if len(release_date_str) >= 4 else "N/A"
 
-            # Check إضافي تحسباً لأي تضارب (Race Condition)
             is_in = await self.bot.services.db.is_in_watchlist(user_id, tmdb_id, media_type)
             if is_in:
                 button.style = discord.ButtonStyle.success
