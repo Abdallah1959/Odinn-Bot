@@ -1,9 +1,10 @@
+# views/watchlist_views.py
 import discord
 import logging
 
 logger = logging.getLogger(__name__)
 
-# 1. زر الرجوع الموحد
+# 1. Unified Back Button
 class BackToLibraryButton(discord.ui.Button):
     def __init__(self, bot, user_id: int):
         super().__init__(label="🔙 Back to Library", style=discord.ButtonStyle.secondary, custom_id="back_to_lib_home", row=2)
@@ -45,7 +46,7 @@ class BackToLibraryButton(discord.ui.Button):
             await interaction.response.send_message("❌ An unexpected error occurred while returning to the library.", ephemeral=True)
 
 
-# 2. Dropdown اختيار الأفلام
+# 2. Movies Dropdown
 class LibraryMovieSelect(discord.ui.Select):
     def __init__(self, bot, user_id, movies):
         self.bot = bot
@@ -67,18 +68,21 @@ class LibraryMovieSelect(discord.ui.Select):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("⚠️ This is not your library.", ephemeral=True)
         
+        # Securing the Interaction against the 3-second timeout limit
         await interaction.response.defer()
         
         try:
             from cogs.movie_search import build_movie_card, MovieView
             tmdb_id = int(self.values[0])
             movie = await self.bot.services.tmdb.get_movie_details(tmdb_id)
+            
             if not movie:
                 return await interaction.followup.send("❌ Error fetching movie details from TMDB.", ephemeral=True)
                 
             embed = await build_movie_card(movie)
-            # تم التعديل: نمرر library_user_id ليعرف الكارت أنه مفتوح من المكتبة
+            # Passing library_user_id for context-aware routing and protection
             view = MovieView(movie, [movie], self.bot, is_in_watchlist=True, library_user_id=self.user_id)
+            
             await interaction.edit_original_response(embed=embed, view=view)
             
         except Exception:
@@ -86,7 +90,7 @@ class LibraryMovieSelect(discord.ui.Select):
             await interaction.followup.send("❌ An unexpected error occurred while loading the movie.", ephemeral=True)
 
 
-# 3. Dropdown اختيار المسلسلات
+# 3. TV Shows Dropdown
 class LibraryTVSelect(discord.ui.Select):
     def __init__(self, bot, user_id, tv_shows):
         self.bot = bot
@@ -108,18 +112,21 @@ class LibraryTVSelect(discord.ui.Select):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("⚠️ This is not your library.", ephemeral=True)
         
+        # Securing the Interaction against the 3-second timeout limit
         await interaction.response.defer()
         
         try:
             from cogs.tv_search import build_tv_card, TVView
             tmdb_id = int(self.values[0])
             tv = await self.bot.services.tmdb.get_tv_details(tmdb_id)
+            
             if not tv:
                 return await interaction.followup.send("❌ Error fetching TV show details from TMDB.", ephemeral=True)
                 
             embed = await build_tv_card(tv)
-            # تم التعديل: نمرر library_user_id
+            # Passing library_user_id for context-aware routing and protection
             view = TVView(tv, [tv], self.bot, is_in_watchlist=True, library_user_id=self.user_id)
+            
             await interaction.edit_original_response(embed=embed, view=view)
             
         except Exception:
@@ -127,7 +134,7 @@ class LibraryTVSelect(discord.ui.Select):
             await interaction.followup.send("❌ An unexpected error occurred while loading the TV show.", ephemeral=True)
 
 
-# 4. View مكتبة الأفلام
+# 4. Movies Library View
 class MoviesLibraryView(discord.ui.View):
     def __init__(self, bot, user_id: int, movies: list):
         super().__init__(timeout=300)
@@ -135,7 +142,7 @@ class MoviesLibraryView(discord.ui.View):
         self.add_item(BackToLibraryButton(bot, user_id))
 
 
-# 5. View مكتبة المسلسلات
+# 5. TV Shows Library View
 class TVLibraryView(discord.ui.View):
     def __init__(self, bot, user_id: int, tv_shows: list):
         super().__init__(timeout=300)
@@ -143,13 +150,14 @@ class TVLibraryView(discord.ui.View):
         self.add_item(BackToLibraryButton(bot, user_id))
 
 
-# 6. الـ Dashboard الرئيسية
+# 6. Main Library Dashboard
 class WatchlistHomeView(discord.ui.View):
     def __init__(self, bot, user_id: int):
         super().__init__(timeout=300)
         self.bot = bot
         self.user_id = user_id
 
+    # --- DRY Helper Function ---
     async def _build_media_library(self, interaction: discord.Interaction, media_type: str):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("⚠️ This is not your library.", ephemeral=True)
@@ -192,7 +200,7 @@ class WatchlistHomeView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=view_class(self.bot, self.user_id, items))
             
         except Exception:
-            logger.exception(f"Error loading {item_name_plural} library")
+            logger.exception("Error loading %s library", item_name_plural)
             await interaction.response.send_message(f"❌ An unexpected error occurred while loading your {item_name_plural}.", ephemeral=True)
 
     @discord.ui.button(label="🎬 Movies", style=discord.ButtonStyle.primary, custom_id="lib_movies_btn")
