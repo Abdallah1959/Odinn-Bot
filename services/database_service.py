@@ -18,17 +18,16 @@ class DatabaseService:
             self.supabase: Client = create_client(url, key)
             logger.info("✅ Supabase initialized.")
 
-    # [التحسين الجديد]: اختبار الاتصال عند الإقلاع
     async def test_connection(self) -> bool:
         if not self.supabase:
             return False
         try:
             await asyncio.to_thread(
-                self.supabase.table("watchlist").select("id").limit(1).execute
+                lambda: self.supabase.table("watchlist").select("id").limit(1).execute()
             )
             return True
-        except Exception as e:
-            logger.error("Database connection test failed: %s", e)
+        except Exception:
+            logger.exception("Database connection test failed")
             return False
 
     async def add_to_watchlist(self, user_id: int, tmdb_id: int, media_type: str, media_name: str, poster_url: str, release_year: str) -> bool:
@@ -45,12 +44,16 @@ class DatabaseService:
         }
         
         try:
+            # Idempotent write operation.
+            # Repeated additions of the same item must not create duplicates.
             await asyncio.to_thread(
-                self.supabase.table("watchlist").insert(data).execute
+                lambda: self.supabase.table("watchlist")
+                .upsert(data, on_conflict="user_id,tmdb_id,media_type")
+                .execute()
             )
             return True
-        except Exception as e:
-            logger.error("Error adding to watchlist for user %s: %s", user_id, e)
+        except Exception:
+            logger.exception("Error adding to watchlist for user %s", user_id)
             return False
 
     async def remove_from_watchlist(self, user_id: int, tmdb_id: int, media_type: str) -> bool:
@@ -59,29 +62,28 @@ class DatabaseService:
         
         try:
             await asyncio.to_thread(
-                self.supabase.table("watchlist").delete().match({
+                lambda: self.supabase.table("watchlist").delete().match({
                     "user_id": user_id, 
                     "tmdb_id": tmdb_id, 
                     "media_type": media_type
-                }).execute
+                }).execute()
             )
             return True
-        except Exception as e:
-            logger.error("Error removing from watchlist for user %s: %s", user_id, e)
+        except Exception:
+            logger.exception("Error removing from watchlist for user %s", user_id)
             return False
 
-    # [التحسين الجديد]: إضافة Type Hints
     async def get_watchlist(self, user_id: int) -> List[Dict[str, Any]]:
         if not self.supabase:
             return []
         
         try:
             response = await asyncio.to_thread(
-                self.supabase.table("watchlist").select("*").eq("user_id", user_id).order("added_at", desc=True).execute
+                lambda: self.supabase.table("watchlist").select("*").eq("user_id", user_id).order("added_at", desc=True).execute()
             )
             return response.data
-        except Exception as e:
-            logger.error("Error getting watchlist for user %s: %s", user_id, e)
+        except Exception:
+            logger.exception("Error getting watchlist for user %s", user_id)
             return []
 
     async def is_in_watchlist(self, user_id: int, tmdb_id: int, media_type: str) -> bool:
@@ -90,18 +92,17 @@ class DatabaseService:
             
         try:
             response = await asyncio.to_thread(
-                self.supabase.table("watchlist").select("id").match({
+                lambda: self.supabase.table("watchlist").select("id").match({
                     "user_id": user_id, 
                     "tmdb_id": tmdb_id, 
                     "media_type": media_type
-                }).execute
+                }).execute()
             )
             return len(response.data) > 0
-        except Exception as e:
-            logger.error("Error checking watchlist for user %s: %s", user_id, e)
+        except Exception:
+            logger.exception("Error checking watchlist for user %s", user_id)
             return False
 
-    # [التحسين الجديد]: دعم تصفية العدد حسب نوع الميديا للإحصائيات المستقبلية
     async def count_watchlist_items(self, user_id: int, media_type: Optional[str] = None) -> int:
         if not self.supabase:
             return 0
@@ -111,8 +112,8 @@ class DatabaseService:
             if media_type:
                 query = query.eq("media_type", media_type)
                 
-            response = await asyncio.to_thread(query.execute)
+            response = await asyncio.to_thread(lambda: query.execute())
             return response.count if response.count is not None else 0
-        except Exception as e:
-            logger.error("Error counting watchlist items for user %s: %s", user_id, e)
+        except Exception:
+            logger.exception("Error counting watchlist items for user %s", user_id)
             return 0
