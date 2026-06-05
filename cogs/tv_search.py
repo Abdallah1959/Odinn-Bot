@@ -67,7 +67,8 @@ async def build_tv_card(tv):
 
 
 class TVView(discord.ui.View):
-    def __init__(self, tv, results, bot, is_in_watchlist: bool = False):
+    # تم إضافة library_user_id كمتغير اختياري
+    def __init__(self, tv, results, bot, is_in_watchlist: bool = False, library_user_id: int = None):
         super().__init__(timeout=300)
         self.tv = tv
         self.bot = bot
@@ -87,11 +88,15 @@ class TVView(discord.ui.View):
         if len(results) > 1:
             self.add_item(TVSelect(results, bot))
 
-        # تحديث حالة الزر فور بناء الكارت إذا كان المسلسل في القائمة
         if is_in_watchlist:
             self.add_to_watchlist_btn.style = discord.ButtonStyle.success
             self.add_to_watchlist_btn.label = "In Watchlist ✅"
             self.add_to_watchlist_btn.disabled = True
+
+        # إضافة زر العودة للمكتبة
+        if library_user_id:
+            from views.watchlist_views import BackToLibraryButton
+            self.add_item(BackToLibraryButton(bot, library_user_id))
 
     @discord.ui.button(label="Add To Watchlist ⭐", style=discord.ButtonStyle.secondary, custom_id="add_to_watchlist_tv", row=0)
     async def add_to_watchlist_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -108,13 +113,11 @@ class TVView(discord.ui.View):
                 return
                 
             media_type = "tv"
-            # أولوية الاسم العربي ثم الأصلي للمسلسلات (name / original_name)
             media_name = getattr(self.tv, 'name') or getattr(self.tv, 'original_name') or "Unknown"
             poster_url = getattr(self.tv, 'poster_url', None)
             first_air_date_str = getattr(self.tv, 'first_air_date', "") or ""
             release_year = first_air_date_str[:4] if len(first_air_date_str) >= 4 else "N/A"
 
-            # Check إضافي تحسباً لأي تضارب (Race Condition)
             is_in = await self.bot.services.db.is_in_watchlist(user_id, tmdb_id, media_type)
             if is_in:
                 button.style = discord.ButtonStyle.success
@@ -177,7 +180,6 @@ class TVSelect(discord.ui.Select):
             
         embed = await build_tv_card(tv)
         
-        # فحص وجود المسلسل قبل بناء الكارت الجديد عند التغيير من القائمة
         tmdb_id = getattr(tv, 'tmdb_id', tv_id)
         is_in_watchlist = await self.bot.services.db.is_in_watchlist(interaction.user.id, tmdb_id, "tv")
         view = TVView(tv, self.results, self.bot, is_in_watchlist)
@@ -250,7 +252,6 @@ class TVSearch(commands.Cog):
             
         embed = await build_tv_card(tv)
         
-        # فحص وجود المسلسل قبل بناء الكارت لأول مرة
         tmdb_id = getattr(tv, 'tmdb_id', tv_id)
         is_in_watchlist = await self.bot.services.db.is_in_watchlist(interaction.user.id, tmdb_id, "tv")
         view = TVView(tv, sorted_results, self.bot, is_in_watchlist)
