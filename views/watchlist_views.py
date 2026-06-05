@@ -10,11 +10,14 @@ logger = logging.getLogger(__name__)
 # ==========================================
 
 class PaginationState:
-    """Manages pagination state and slicing logic cleanly"""
+    """Manages pagination state with defensive clamping and slicing logic"""
     def __init__(self, items: list, page: int = 0, per_page: int = 10):
         self.items = items
-        self.page = page
         self.per_page = per_page
+        
+        # Defensive Programming: Calculate total pages first to clamp page safely
+        total_p = max(1, math.ceil(len(self.items) / self.per_page))
+        self.page = max(0, min(page, total_p - 1))
 
     @property
     def total_pages(self) -> int:
@@ -40,13 +43,12 @@ class PaginationState:
 
 class PaginationControls(discord.ui.View):
     """Base View with dynamic button states and Context-Awareness"""
-    # تمت إضافة media_type هنا ليكون الـ Base Class على دراية بالسياق
     def __init__(self, bot, user_id: int, state: PaginationState, media_type: str):
         super().__init__(timeout=300)
         self.bot = bot
         self.user_id = user_id
         self.state = state
-        self.media_type = media_type  # Context Awareness ✅
+        self.media_type = media_type
 
         # ◀️ Previous Button
         self.prev_btn = discord.ui.Button(
@@ -80,13 +82,57 @@ class PaginationControls(discord.ui.View):
         self.next_btn.callback = self.next_callback
         self.add_item(self.next_btn)
 
+    async def _update_page(self, interaction: discord.Interaction, new_page: int):
+        """Helper method to handle the common logic for both Next and Previous"""
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("⚠️ This is not your library.", ephemeral=True)
+
+        if not interaction.response.is_done():
+            await interaction.response.defer()
+
+        new_state = PaginationState(
+            items=self.state.items,
+            page=new_page,
+            per_page=self.state.per_page
+        )
+
+        is_movie = (self.media_type == "movie")
+        title = "🎬 Movies Library" if is_movie else "📺 TV Shows Library"
+        item_name = "movie" if is_movie else "TV show"
+
+        total_items = len(new_state.items)
+        start_idx = new_state.page * new_state.per_page + 1
+        end_idx = min((new_state.page + 1) * new_state.per_page, total_items)
+
+        description_text = (
+            f"Select a {item_name} from the menu below to view details.\n\n"
+            f"*Showing items {start_idx} to {end_idx} of {total_items}*\n"
+            f"*Page {new_state.current_page} of {new_state.total_pages}*"
+        )
+
+        embed = discord.Embed(
+            title=title,
+            description=description_text,
+            color=discord.Color.from_rgb(229, 9, 20)
+        )
+        embed.set_author(name=f"{interaction.user.display_name}'s Library", icon_url=interaction.user.display_avatar.url)
+
+        if self.media_type == "movie":
+            new_view = MoviesLibraryView(self.bot, self.user_id, new_state)
+        else:
+            new_view = TVLibraryView(self.bot, self.user_id, new_state)
+
+        await interaction.edit_original_response(embed=embed, view=new_view)
+
     async def prev_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        # Logic will be implemented in the next step using self.media_type
+        if not self.state.has_previous:
+            return
+        await self._update_page(interaction, self.state.page - 1)
 
     async def next_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        # Logic will be implemented in the next step using self.media_type
+        if not self.state.has_next:
+            return
+        await self._update_page(interaction, self.state.page + 1)
 
 
 # ==========================================
@@ -104,6 +150,8 @@ class BackToLibraryButton(discord.ui.Button):
             return await interaction.response.send_message("⚠️ This is not your library.", ephemeral=True)
 
         try:
+            # TODO: Implement in-memory stats caching within the main view context 
+            # to prevent redundant Supabase queries during back-navigation.
             watchlist_items = await self.bot.services.db.get_watchlist(self.user_id)
             total_items = len(watchlist_items)
             movies_count = sum(1 for item in watchlist_items if item.get("media_type") == "movie")
@@ -127,11 +175,14 @@ class BackToLibraryButton(discord.ui.Button):
                 inline=False
             )
             
-            await interaction.response.edit_message(embed=embed, view=WatchlistHomeView(self.bot, self.user_id))
+            if not interaction.response.is_done():
+                await interaction.response.edit_message(embed=embed, view=WatchlistHomeView(self.bot, self.user_id))
+            else:
+                await interaction.edit_original_response(embed=embed, view=WatchlistHomeView(self.bot, self.user_id))
             
         except Exception:
             logger.exception("Error in BackToLibraryButton callback")
-            await interaction.response.send_message("❌ An unexpected error occurred while returning to the library.", ephemeral=True)
+            await interaction.followup.send("❌ An unexpected error occurred while returning to the library.", ephemeral=True)
 
 
 # ==========================================
@@ -152,8 +203,9 @@ class LibraryMovieSelect(discord.ui.Select):
             year = item.get("release_year", "N/A")
             tmdb_id = str(item.get("tmdb_id"))
             
+            # Defensive Slicing: Keep title at max 80 chars to safely stay below Discord's 100-char limit
             options.append(discord.SelectOption(
-                label=f"{title[:90]} ({year})",
+                label=f"{title[:80]} ({year})",
                 value=tmdb_id,
                 emoji="🎬"
             ))
@@ -163,7 +215,9 @@ class LibraryMovieSelect(discord.ui.Select):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("⚠️ This is not your library.", ephemeral=True)
         
-        await interaction.response.defer()
+        if not interaction.response.is_done():
+            await interaction.response.defer()
+            
         try:
             from cogs.movie_search import build_movie_card, MovieView
             tmdb_id = int(self.values[0])
@@ -195,8 +249,9 @@ class LibraryTVSelect(discord.ui.Select):
             year = item.get("release_year", "N/A")
             tmdb_id = str(item.get("tmdb_id"))
             
+            # Defensive Slicing: Keep title at max 80 chars to safely stay below Discord's 100-char limit
             options.append(discord.SelectOption(
-                label=f"{name[:90]} ({year})",
+                label=f"{name[:80]} ({year})",
                 value=tmdb_id,
                 emoji="📺"
             ))
@@ -206,11 +261,13 @@ class LibraryTVSelect(discord.ui.Select):
         if interaction.user.id != self.user_id:
             return await interaction.response.send_message("⚠️ This is not your library.", ephemeral=True)
         
-        await interaction.response.defer()
+        if not interaction.response.is_done():
+            await interaction.response.defer()
+            
         try:
             from cogs.tv_search import build_tv_card, TVView
             tmdb_id = int(self.values[0])
-            tv = await self.bot.services.tmdb.get_tv_details(tmdb_id)
+            tv = await self.bot.services.tmdb.get_tv_details(tmdb_id)  # Fix: Using tmdb_id safely
             
             if not tv:
                 return await interaction.followup.send("❌ Error fetching TV show details from TMDB.", ephemeral=True)
@@ -230,7 +287,6 @@ class LibraryTVSelect(discord.ui.Select):
 
 class MoviesLibraryView(PaginationControls):
     def __init__(self, bot, user_id: int, state: PaginationState):
-        # تمرير media_type="movie" للطبقة الأب
         super().__init__(bot, user_id, state, media_type="movie")
         self.add_item(LibraryMovieSelect(bot, user_id, state))
         self.add_item(BackToLibraryButton(bot, user_id))
@@ -238,7 +294,6 @@ class MoviesLibraryView(PaginationControls):
 
 class TVLibraryView(PaginationControls):
     def __init__(self, bot, user_id: int, state: PaginationState):
-        # تمرير media_type="tv" للطبقة الأب
         super().__init__(bot, user_id, state, media_type="tv")
         self.add_item(LibraryTVSelect(bot, user_id, state))
         self.add_item(BackToLibraryButton(bot, user_id))
@@ -277,11 +332,23 @@ class WatchlistHomeView(discord.ui.View):
                 embed.set_author(name=f"{interaction.user.display_name}'s Library", icon_url=interaction.user.display_avatar.url)
                 empty_view = discord.ui.View(timeout=300)
                 empty_view.add_item(BackToLibraryButton(self.bot, self.user_id))
-                return await interaction.response.edit_message(embed=embed, view=empty_view)
+                
+                if not interaction.response.is_done():
+                    return await interaction.response.edit_message(embed=embed, view=empty_view)
+                else:
+                    return await interaction.edit_original_response(embed=embed, view=empty_view)
 
             state = PaginationState(items=items, page=0, per_page=10)
             
-            description_text = f"Select a {item_name} from the menu below to view details.\n\n*Showing items {state.page * state.per_page + 1} to {min((state.page + 1) * state.per_page, len(items))} of {len(items)}*"
+            total_items = len(items)
+            start_idx = 1
+            end_idx = min(state.per_page, total_items)
+            
+            description_text = (
+                f"Select a {item_name} from the menu below to view details.\n\n"
+                f"*Showing items {start_idx} to {end_idx} of {total_items}*\n"
+                f"*Page {state.current_page} of {state.total_pages}*"
+            )
                 
             embed = discord.Embed(
                 title=title,
@@ -290,11 +357,14 @@ class WatchlistHomeView(discord.ui.View):
             )
             embed.set_author(name=f"{interaction.user.display_name}'s Library", icon_url=interaction.user.display_avatar.url)
             
-            await interaction.response.edit_message(embed=embed, view=view_class(self.bot, self.user_id, state))
+            if not interaction.response.is_done():
+                await interaction.response.edit_message(embed=embed, view=view_class(self.bot, self.user_id, state))
+            else:
+                await interaction.edit_original_response(embed=embed, view=view_class(self.bot, self.user_id, state))
             
         except Exception:
             logger.exception("Error loading %s library", item_name_plural)
-            await interaction.response.send_message(f"❌ An unexpected error occurred while loading your {item_name_plural}.", ephemeral=True)
+            await interaction.followup.send(f"❌ An unexpected error occurred while loading your {item_name_plural}.", ephemeral=True)
 
     @discord.ui.button(label="🎬 Movies", style=discord.ButtonStyle.primary, custom_id="lib_movies_btn")
     async def movies_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
