@@ -117,3 +117,38 @@ class DatabaseService:
         except Exception:
             logger.exception("Error counting watchlist items for user %s", user_id)
             return 0
+
+    # ==========================================
+    # Movies Feed Methods (posted_media table)
+    # ==========================================
+
+    async def is_posted(self, media_key: str) -> bool:
+        if not self.supabase:
+            return False
+
+        try:
+            response = await asyncio.to_thread(
+                lambda: self.supabase.table("posted_media")
+                .select("id")
+                .eq("media_key", media_key)
+                .execute()
+            )
+            return len(response.data) > 0
+        except Exception:
+            logger.exception("Error checking posted media")
+            return False
+
+    async def mark_as_posted(self, media_key: str) -> bool:
+        if not self.supabase:
+            return False
+
+        try:
+            await asyncio.to_thread(
+                lambda: self.supabase.table("posted_media")
+                .insert({"media_key": media_key})
+                .execute()
+            )
+            return True
+        except Exception:
+            logger.exception("Error marking media as posted")
+            return False
