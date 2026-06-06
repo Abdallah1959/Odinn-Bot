@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 import datetime
 from zoneinfo import ZoneInfo
 import logging
@@ -18,7 +19,22 @@ class MoviesFeed(commands.Cog):
     def cog_unload(self):
         self.daily_pick.cancel()
 
-    # Timezone set to Egypt to run exactly at 8:00 PM local time
+    # ==========================================
+    # Testing Command (Temporary)
+    # ==========================================
+    @app_commands.command(name="testfeed", description="[Admin] Trigger the daily pick manually for testing")
+    async def test_feed(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await self.daily_pick()
+            await interaction.followup.send("✅ Daily Pick Sequence Triggered! Check the channel and Supabase.", ephemeral=True)
+        except Exception:
+            logger.exception("Error during manual testfeed trigger")
+            await interaction.followup.send("❌ An error occurred during the test.", ephemeral=True)
+
+    # ==========================================
+    # Main Scheduled Task
+    # ==========================================
     @tasks.loop(time=datetime.time(hour=20, minute=0, tzinfo=ZoneInfo("Africa/Cairo")))
     async def daily_pick(self):
         channel = self.bot.get_channel(self.channel_id)
